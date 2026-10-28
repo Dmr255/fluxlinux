@@ -2,7 +2,10 @@ package com.ivarna.fluxlinux.ui.screens
 
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -35,15 +38,18 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import com.ivarna.fluxlinux.core.utils.TermuxX11Preferences
 import com.ivarna.fluxlinux.ui.components.FluxSwitch
@@ -80,6 +86,7 @@ fun X11SettingsScreen(
     var scancodeWorkaround by remember {
         mutableStateOf(TermuxX11Preferences.getScancodeWorkaround(context))
     }
+    var touchMode by remember { mutableIntStateOf(TermuxX11Preferences.getTouchMode(context)) }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -200,6 +207,25 @@ fun X11SettingsScreen(
                         color = MaterialTheme.colorScheme.secondary
                     )
                     Spacer(Modifier.height(12.dp))
+                    PrefChoice(
+                        title = "Touch mode",
+                        subtitle = when (touchMode) {
+                            1 -> "Trackpad: the screen acts as a relative pointer"
+                            2 -> "Touchscreen: tap and drag act where you touch"
+                            else -> "Direct touch: raw touch events, for touch-aware apps"
+                        },
+                        options = listOf(
+                            1 to "Trackpad",
+                            2 to "Touch",
+                            3 to "Direct"
+                        ),
+                        selected = touchMode,
+                        onSelect = {
+                            touchMode = it
+                            TermuxX11Preferences.setTouchMode(context, it)
+                        }
+                    )
+                    PrefDivider()
                     PrefSwitch(
                         title = "Capture external pointer",
                         subtitle = "Intercept hardware pointer events",
@@ -311,6 +337,48 @@ private fun PrefDivider() {
         color = FluxHairline,
         modifier = Modifier.padding(vertical = 8.dp)
     )
+}
+
+@Composable
+private fun PrefChoice(
+    title: String,
+    subtitle: String,
+    options: List<Pair<Int, String>>,
+    selected: Int,
+    onSelect: (Int) -> Unit
+) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Text(title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium, fontSize = 15.sp)
+        Text(subtitle, color = fluxMutedText(), fontSize = 13.sp)
+        Spacer(Modifier.height(10.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            options.forEach { (value, label) ->
+                val active = value == selected
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (active) MaterialTheme.colorScheme.secondary else FluxCardFill)
+                        .clickable { onSelect(value) }
+                        .defaultMinSize(minHeight = 44.dp)
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        label,
+                        fontSize = 13.sp,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                        textAlign = TextAlign.Center,
+                        color = if (active) MaterialTheme.colorScheme.onSecondary
+                        else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
