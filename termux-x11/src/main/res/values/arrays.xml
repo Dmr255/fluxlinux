@@ -2,8 +2,8 @@
 <resources>
     <string-array name="touchscreenInputModesEntries">
         <item>Trackpad</item>
-        <item>Simulated touchscreen</item>
-        <item>Direct touch</item>
+        <item>Touchscreen (tap where you touch)</item>
+        <item>Direct touch (raw XI2)</item>
     </string-array>
     <string-array name="touchscreenInputModesValues">
         <item>1</item>
