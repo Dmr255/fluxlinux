@@ -1,0 +1,144 @@
+name: Build FluxLinux APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      flavor:
+        description: "Product flavor (package id)"
+        type: choice
+        options:
+          - ivarna       # com.ivarna.fluxlinux
+          - zenithblue   # com.zenithblue.fluxlinux
+        default: ivarna
+      buildType:
+        description: "Build type"
+        type: choice
+        options:
+          - debug
+          - release
+        default: debug
+
+concurrency:
+  group: build-apk-${{ github.ref }}-${{ inputs.flavor }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # Only the X11 native tree is needed. native/termux-packages (a huge
+      # submodule) is NOT needed: the host .deb packages are already committed
+      # under native/output/<app-id>/.
+      - name: Init X11 native submodules
+        run: |
+          set -euo pipefail
+          # .gitmodules lists each vendored library separately, so a folder
+          # pathspec would match nothing. Initialise every submodule except
+          # native/termux-packages (large; only needed to rebuild host .debs).
+          git config -f .gitmodules --get-regexp '^submodule\..*\.path$' \
+            | awk '{print $2}' \
+            | grep -v '^native/termux-packages$' \
+            | while read -r p; do
+                echo "init $p"
+                git submodule update --init --recursive --depth 1 -- "$p"
+              done
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bison patch python3 pkg-config automake libtool binutils
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;29.0.14206865" \
+            "cmake;3.22.1"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "NDK: $ANDROID_HOME/ndk/29.0.14206865"
+
+      # This is the step the previous build was missing: bootstrap.tar is not
+      # committed, it is assembled from the committed .deb set.
+      - name: Assemble host bootstrap
+        env:
+          FLAVOR: ${{ inputs.flavor }}
+        run: |
+          set -euo pipefail
+          case "$FLAVOR" in
+            ivarna)     APP_ID=com.ivarna.fluxlinux ;;
+            zenithblue) APP_ID=com.zenithblue.fluxlinux ;;
+            *) echo "unknown flavor: $FLAVOR" >&2; exit 1 ;;
+          esac
+          echo "app-id=$APP_ID"
+
+          python3 scripts/assemble_bootstrap.py \
+            --package-name "$APP_ID" \
+            --deb-dir "native/output/$APP_ID" \
+            --list native/package-lists/bootstrap-host.txt \
+            --mode full
+
+          bash scripts/verify_bootstrap.sh "$APP_ID"
+          ls -lh "native/bootstrap/$APP_ID/bootstrap.tar"
+
+      - name: Build APK
+        env:
+          FLAVOR: ${{ inputs.flavor }}
+          BUILD_TYPE: ${{ inputs.buildType }}
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          CAP="$(printf '%s' "${FLAVOR:0:1}" | tr '[:lower:]' '[:upper:]')${FLAVOR:1}"
+          TASK=":app:assemble${CAP}$(printf '%s' "${BUILD_TYPE:0:1}" | tr '[:lower:]' '[:upper:]')${BUILD_TYPE:1}"
+          echo "running $TASK"
+
+          if [ "$BUILD_TYPE" = "release" ] && [ ! -f "$HOME/.android/debug.keystore" ]; then
+            mkdir -p "$HOME/.android"
+            keytool -genkey -v -keystore "$HOME/.android/debug.keystore" \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "C=US, O=Android, CN=Android Debug"
+          fi
+
+          if [ "$BUILD_TYPE" = "release" ]; then
+            ./gradlew "$TASK" --stacktrace --no-daemon \
+              -Pandroid.injected.signing.store.file="$HOME/.android/debug.keystore" \
+              -Pandroid.injected.signing.store.password=android \
+              -Pandroid.injected.signing.key.alias=androiddebugkey \
+              -Pandroid.injected.signing.key.password=android
+          else
+            ./gradlew "$TASK" --stacktrace --no-daemon
+          fi
+
+      - name: Collect APK
+        run: |
+          mkdir -p dist
+          find app/build/outputs/apk -name '*.apk' -print -exec cp {} dist/ \;
+          ls -lh dist
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxlinux-${{ inputs.flavor }}-${{ inputs.buildType }}
+          path: dist/*.apk
+          retention-days: 7
+          if-no-files-found: error
