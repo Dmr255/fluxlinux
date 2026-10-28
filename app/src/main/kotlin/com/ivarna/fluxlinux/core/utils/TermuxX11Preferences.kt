@@ -29,6 +29,7 @@ object TermuxX11Preferences {
     private const val KEY_PREFER_SCANCODES = "preferScancodes"
     private const val KEY_SCANCODE_WORKAROUND = "hardwareKbdScancodesWorkaround"
     private const val KEY_RESOLUTION_MODE = "displayResolutionMode"
+    private const val KEY_TOUCH_MODE = "touchMode"
 
     private fun prefs(context: Context) =
         PreferenceManager.getDefaultSharedPreferences(context.applicationContext)
@@ -68,6 +69,16 @@ object TermuxX11Preferences {
     }
 
     // ── Input ────────────────────────────────────────────────────────────────
+
+    // Input mode: 1 = trackpad (relative cursor), 2 = simulated touchscreen
+    // (tap/drag act at the touched point), 3 = direct touch (raw XI2 touch events).
+    fun getTouchMode(context: Context): Int =
+        prefs(context).getString(KEY_TOUCH_MODE, "2")?.toIntOrNull()?.coerceIn(1, 3) ?: 2
+
+    fun setTouchMode(context: Context, mode: Int) {
+        prefs(context).edit().putString(KEY_TOUCH_MODE, mode.coerceIn(1, 3).toString()).apply()
+        notifyChanged(context, KEY_TOUCH_MODE)
+    }
 
     fun getCapturePointer(context: Context): Boolean =
         prefs(context).getBoolean(KEY_POINTER_CAPTURE, false)
@@ -123,7 +134,7 @@ object TermuxX11Preferences {
                 p.edit()
                     .putString(KEY_RESOLUTION_MODE, "scaled")
                     .putBoolean("clipboardEnable", true)
-                    .putString("touchMode", "1")
+                    .putString("touchMode", "2")
                     .putBoolean("scaleTouchpad", true)
                     .apply()
             }
