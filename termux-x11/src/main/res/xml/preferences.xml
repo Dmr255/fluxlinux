@@ -22,7 +22,7 @@
         </PreferenceCategory>
 
         <PreferenceCategory app:key="cat_pointer" app:title="@string/lorie_pref_pointer" app:iconSpaceReserved="false">
-            <ListPreference app:key="touchMode" app:defaultValue="1" app:entries="@array/touchscreenInputModesEntries" app:entryValues="@array/touchscreenInputModesValues" />
+            <ListPreference app:key="touchMode" app:defaultValue="2" app:entries="@array/touchscreenInputModesEntries" app:entryValues="@array/touchscreenInputModesValues" />
             <com.termux.x11.NcSwitchPreference app:key="scaleTouchpad" app:defaultValue="true" />
             <com.termux.x11.NcSwitchPreference app:key="showStylusClickOverride" app:defaultValue="false" />
             <com.termux.x11.NcSwitchPreference app:key="stylusIsMouse" app:defaultValue="false" />
