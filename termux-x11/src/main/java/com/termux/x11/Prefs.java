@@ -17,7 +17,7 @@ public class Prefs extends LoriePreferences.PrefsProto {
   public final ListPreference forceOrientation = new ListPreference("forceOrientation", "auto", R.array.forceOrientationVariants, R.array.forceOrientationVariants);
   public final BooleanPreference hideCutout = new BooleanPreference("hideCutout", false);
   public final BooleanPreference keepScreenOn = new BooleanPreference("keepScreenOn", true);
-  public final ListPreference touchMode = new ListPreference("touchMode", "1", R.array.touchscreenInputModesEntries, R.array.touchscreenInputModesValues);
+  public final ListPreference touchMode = new ListPreference("touchMode", "2", R.array.touchscreenInputModesEntries, R.array.touchscreenInputModesValues);
   public final BooleanPreference scaleTouchpad = new BooleanPreference("scaleTouchpad", true);
   public final BooleanPreference showStylusClickOverride = new BooleanPreference("showStylusClickOverride", false);
   public final BooleanPreference stylusIsMouse = new BooleanPreference("stylusIsMouse", false);
