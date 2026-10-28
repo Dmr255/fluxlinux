@@ -54,7 +54,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            bison patch python3 pkg-config automake libtool binutils ar
+            bison patch python3 pkg-config automake libtool binutils
 
       - name: Setup JDK 17
         uses: actions/setup-java@v4
