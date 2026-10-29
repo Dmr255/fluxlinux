@@ -36,8 +36,12 @@ object BootstrapInstaller {
     private const val ASSET_NAME = "bootstrap.tar"
     private const val TMP_DIR = ".bootstrap_extract_tmp"
 
-    /** Bump when the extract/rewrite pipeline changes (invalidates old trees). */
-    const val EXTRACT_VERSION = 2
+    /**
+     * Bump when the extract/rewrite pipeline **or the bootstrap content** changes
+     * (invalidates old trees). 3: bootstrap now ships libmpfr.so +
+     * libwebrtc-audio-processing-1.so; a v2 prefix keeps the broken gawk.
+     */
+    const val EXTRACT_VERSION = 3
 
     private const val MARKER_REL = "home/.fluxlinux/bootstrap.extracted"
 
