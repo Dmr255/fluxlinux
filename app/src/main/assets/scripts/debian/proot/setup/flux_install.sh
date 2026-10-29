@@ -270,7 +270,15 @@ verify_rootfs_sha() {
     _file="$1"
     [ -z "$ROOTFS_SHA256" ] && return 0
     if command -v sha256sum >/dev/null 2>&1; then
-        _got="$(sha256sum "$_file" | awk '{print $1}')"
+        # No `awk` in this pipeline: gawk links against libmpfr.so, and a single
+        # missing runtime library used to break the pipe, leaving _got empty and
+        # reporting a bogus "SHA256 mismatch". Pure shell field split instead.
+        _sum_out="$(sha256sum "$_file" 2>/dev/null)"
+        _got="${_sum_out%% *}"
+        if [ -z "$_got" ]; then
+            echo "FluxLinux: sha256sum produced no output for $_file"
+            return 1
+        fi
         if [ "$_got" != "$ROOTFS_SHA256" ]; then
             echo "FluxLinux: SHA256 mismatch for $_file"
             echo "  expected $ROOTFS_SHA256"

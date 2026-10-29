@@ -78,7 +78,10 @@ mkdir -p "$TMPDIR/.X11-unix" 2>/dev/null || {
   mkdir -p "$TMPDIR/.X11-unix"
 }
 chmod 1777 "$TMPDIR" "$TMPDIR/.X11-unix" 2>/dev/null || true
-_ctx=$(ls -Zd "$TERMUX_PREFIX" 2>/dev/null | awk '{print $1}')
+# First field of `ls -Zd` (the SELinux context). No awk: gawk needs libmpfr.so
+# and a failed link would silently leave _ctx empty and skip chcon below.
+_ls_z=$(ls -Zd "$TERMUX_PREFIX" 2>/dev/null) || _ls_z=""
+_ctx="${_ls_z%% *}"
 if [ -n "$_ctx" ] && command -v chcon >/dev/null 2>&1; then
   chcon -R "$_ctx" "$TMPDIR" 2>/dev/null || chcon "$_ctx" "$TMPDIR" 2>/dev/null || true
 fi

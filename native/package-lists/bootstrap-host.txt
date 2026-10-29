@@ -68,6 +68,13 @@ readline
 ncurses
 libc++
 libgmp
+# gawk links against libmpfr.so at runtime (NEEDED). Without it every awk
+# invocation dies with "CANNOT LINK EXECUTABLE ... libmpfr.so not found",
+# which breaks install (sha256sum|awk) and host Pulse.
+libmpfr
+# pulseaudio's libwebrtc-util.so (echo-cancel module) has a hard NEEDED on
+# this; keep the prefix ELF closure complete so verification stays strict.
+libwebrtc-audio-processing
 liblzma
 pcre2
 libffi

@@ -55,6 +55,10 @@ DEFAULT_PACKAGES = [
     "libunbound",
     "libnettle",
     "libgmp",
+    # gawk has a hard NEEDED on libmpfr.so; shipping gawk without it makes
+    # every `awk` in the host scripts fail to link.
+    "libmpfr",
+    "libwebrtc-audio-processing",
     "liblzma",
     "libc++",
     "libandroid-shmem",

@@ -71,6 +71,63 @@ for so in libbash.so libproot.so libloader.so libloader32.so libpulseaudio.so li
   fi
 done
 
+# ELF NEEDED closure: every shared library a bundled binary links against must
+# be present in the prefix (or be an Android system lib). Shipping gawk without
+# libmpfr.so made every `awk` fail with "CANNOT LINK EXECUTABLE", which broke
+# both distro install (sha256sum|awk) and the host Pulse scripts.
+elf_root="$ROOT/native/bootstrap/$PKG/root/data/data/$PKG/files"
+if [[ -d "$elf_root/usr" ]] && command -v readelf >/dev/null 2>&1; then
+  echo "[*] ELF NEEDED closure under $elf_root"
+  while IFS= read -r line; do
+    echo "  [MISSING LIB] $line"
+    fail=1
+  done < <(python3 - "$elf_root" <<'PY'
+import os, re, subprocess, sys
+
+root = sys.argv[1]
+usr = os.path.join(root, "usr")
+
+# Library names shipped in the prefix (resolved by RUNPATH, not by us).
+have = set()
+for dp, _, fs in os.walk(usr):
+    for f in fs:
+        have.add(f)
+
+# Android platform libraries are resolved from /system/lib64 at runtime.
+SYSTEM = {
+    "libc.so", "libm.so", "libdl.so", "liblog.so", "libandroid.so", "libz.so",
+    "libOpenSLES.so", "libaaudio.so", "libEGL.so", "libGLESv2.so", "libvulkan.so",
+    "libnativewindow.so", "libjnigraphics.so", "libmediandk.so", "libOpenMAXAL.so",
+    "libneuralnetworks.so", "libsync.so", "libc++_shared.so",
+}
+
+for sub in ("bin", "libexec", "lib/pulseaudio/modules"):
+    d = os.path.join(usr, sub)
+    if not os.path.isdir(d):
+        continue
+    for f in sorted(os.listdir(d)):
+        p = os.path.join(d, f)
+        if not os.path.isfile(p):
+            continue
+        try:
+            if open(p, "rb").read(4) != b"\x7fELF":
+                continue
+            out = subprocess.run(
+                ["readelf", "-d", p], capture_output=True, text=True, timeout=15
+            ).stdout
+        except Exception:
+            continue
+        for m in re.finditer(r"Shared library: \[([^\]]+)\]", out):
+            lib = m.group(1)
+            if lib in have or lib in SYSTEM:
+                continue
+            print(f"{os.path.relpath(p, root)} needs {lib}")
+PY
+)
+else
+  echo "  [SKIP] ELF closure (no extracted root or no readelf)"
+fi
+
 # Optional: strings on extracted bash if extract root still present
 root_bash="$ROOT/native/bootstrap/$PKG/root/data/data/$PKG/files/usr/bin/bash"
 if [[ -f "$root_bash" ]] && command -v readelf >/dev/null 2>&1; then
