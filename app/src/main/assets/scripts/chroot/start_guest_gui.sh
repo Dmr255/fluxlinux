@@ -9,10 +9,6 @@ if [ -z "${TARGET_PREFIX:-}" ]; then
     TARGET_PREFIX="$FLUX_PREFIX"
   elif [ -n "${FLUX_PACKAGE:-}" ]; then
     TARGET_PREFIX="/data/data/${FLUX_PACKAGE}/files/usr"
-  elif [ -d /data/data/com.zenithblue.fluxlinux/files/usr ]; then
-    TARGET_PREFIX="/data/data/com.zenithblue.fluxlinux/files/usr"
-  else
-    TARGET_PREFIX="/data/data/com.ivarna.fluxlinux/files/usr"
   fi
 fi
 USERNAME="${USERNAME:-flux}"

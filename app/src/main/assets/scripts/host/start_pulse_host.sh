@@ -1,10 +1,21 @@
 #!/bin/bash
+# Derive the app id from a /data/data/<pkg>/... path without forking any
+# external binary: sed/grep/dirname under $PREFIX/bin are ELF files in
+# app_data_file, which targetSdk 36 W^X refuses to exec (EACCES).
+_flux_pkg_from_prefix() {
+  _p=$1
+  _p=${_p#*"/data/data/"}
+  case "$_p" in
+    "$1") printf '' ;;
+    *) printf '%s' "${_p%%/*}" ;;
+  esac
+}
 # start_pulse_host.sh — SSOT host PulseAudio supervisor (app uid only).
 # Guests are clients on PULSE_SERVER=tcp:127.0.0.1. Never start as root or
 # --system. Exit 0 even if audio fails so desktop start is not blocked.
 # Invoked via libbash; shebang is a fallback for a raw exec.
 
-PKG="${TERMUX_APP__PACKAGE_NAME:-com.ivarna.fluxlinux}"
+PKG="${TERMUX_APP__PACKAGE_NAME:-$(_flux_pkg_from_prefix "${TERMUX__PREFIX:-$0}")}"
 _HOST_ENV="${TERMUX__PREFIX:-/data/data/${PKG}/files/usr}/etc/fluxlinux-host.env"
 [ -r "$_HOST_ENV" ] && . "$_HOST_ENV"
 
@@ -65,6 +76,21 @@ run_bin() {
 }
 run_pa() { run_bin "$PA" "$@"; }
 run_pactl() { run_bin "$PACTL" "$@"; }
+# TCP port comes from the SSOT env (TermuxHostPaths.PULSE_PORT). TCP ports are
+# device-wide, so a second FluxLinux app id must not reuse 4713. 4713 is kept
+# for the legacy ids; everything else gets a stable derived port.
+PULSE_PORT="${FLUX_PULSE_PORT:-4713}"
+case "$PULSE_PORT" in
+  ''|*[!0-9]*) PULSE_PORT=4713 ;;
+esac
+# 4713 = 0x1269. Port -> 4 uppercase hex digits for /proc/net/tcp matching.
+_pulse_port_hex() {
+  _p=$1
+  _hi=$(printf '%02X' $(( _p / 256 )))
+  _lo=$(printf '%02X' $(( _p % 256 )))
+  printf '%s%s' "$_hi" "$_lo"
+}
+PORT_HEX="$(_pulse_port_hex "$PULSE_PORT")"
 export PULSE_RUNTIME_PATH="${HOME}/.pulse"
 export XDG_RUNTIME_DIR="${HOME}/.pulse-runtime"
 # A set PULSE_SERVER makes pulseaudio refuse to spawn a daemon (client-only).
@@ -117,7 +143,7 @@ _ver=$(run_pa --version 2>&1) || \
 # Must pass PULSE_SERVER inside env -i. A prefix assignment is discarded.
 # Command is /system/bin/sh (no `=`). $PACTL is $0 of that sh, never env COMMAND.
 tcp_ok() {
-  pa_env PULSE_SERVER=tcp:127.0.0.1 /system/bin/sh -c 'bin="$1"; shift; exec "$bin" "$@"' x "$PACTL" info >/dev/null 2>&1
+  pa_env PULSE_SERVER="tcp:127.0.0.1:${PULSE_PORT}" /system/bin/sh -c 'bin="$1"; shift; exec "$bin" "$@"' x "$PACTL" info >/dev/null 2>&1
 }
 
 sink_name() {
@@ -129,26 +155,30 @@ is_real_sink() {
   [ -n "$_s" ] && [ "$_s" != "auto_null" ] && [ "$_s" != "null" ]
 }
 
-# 4713 = 0x1269. 127.0.0.1 = 0100007F; 0.0.0.0 = 00000000.
+# PORT_HEX is the port in /proc/net/tcp form (4713 => 1269).
+# 127.0.0.1 = 0100007F; 0.0.0.0 = 00000000.
 # After uninstall/reinstall Android assigns a new app uid. A leftover Pulse
-# from the old uid can keep 127.0.0.1:4713 — that is not *our* TCP.
+# from the old uid can keep the port — that is not *our* TCP.
 tcp_our_uid() { id -u; }
 
+# PORT_HEX is passed with -v: a bare word inside awk is an uninitialised awk
+# variable, not the shell one.
 tcp_wildcard() {
-  [ -r /proc/net/tcp ] && awk '$2 == "00000000:1269" && $4 == "0A" { found=1 } END { exit !found }' /proc/net/tcp
+  [ -r /proc/net/tcp ] || return 1
+  awk -v h="$PORT_HEX" '$2 == "00000000:" h && $4 == "0A" { found=1 } END { exit !found }' /proc/net/tcp
 }
 
 tcp_ours_loopback() {
   [ -r /proc/net/tcp ] || return 1
-  awk -v u="$(tcp_our_uid)" \
-    '$2 == "0100007F:1269" && $4 == "0A" && $8 == u { found=1 } END { exit !found }' \
+  awk -v u="$(tcp_our_uid)" -v h="$PORT_HEX" \
+    '$2 == "0100007F:" h && $4 == "0A" && $8 == u { found=1 } END { exit !found }' \
     /proc/net/tcp
 }
 
 tcp_foreign_uid() {
   [ -r /proc/net/tcp ] || return 1
-  awk -v u="$(tcp_our_uid)" \
-    '$2 ~ /:1269$/ && $4 == "0A" && $8 != u { print $8; exit }' \
+  awk -v u="$(tcp_our_uid)" -v h="$PORT_HEX" \
+    'substr($2, length($2) - 3) == h && $4 == "0A" && $8 != u { print $8; exit }' \
     /proc/net/tcp
 }
 
@@ -223,7 +253,7 @@ already_good() {
 }
 
 if already_good; then
-  echo "FluxLinux: [AUDIO] already running sink=$(sink_name) tcp=127.0.0.1:4713"
+  echo "FluxLinux: [AUDIO] already running sink=$(sink_name) tcp=127.0.0.1:${PULSE_PORT}"
   exit 0
 fi
 
@@ -256,7 +286,8 @@ if ! tcp_bound_localhost_only; then
     [ -n "$idx" ] && run_pactl unload-module "$idx" >/dev/null 2>&1 || true
   done
   TCP_LOAD_ERR=$(run_pactl load-module module-native-protocol-tcp \
-    auth-ip-acl=127.0.0.1 auth-anonymous=1 listen=127.0.0.1 2>&1) || true
+    auth-ip-acl=127.0.0.1 auth-anonymous=1 listen=127.0.0.1 \
+    port="$PULSE_PORT" 2>&1) || true
   sleep 0.3
 fi
 
@@ -267,10 +298,10 @@ fi
 if ! tcp_bound_localhost_only || ! tcp_ok; then
   _held=$(tcp_foreign_uid || true)
   if [ -n "$_held" ]; then
-    audio_fail "sink=$(sink_name) tcp:127.0.0.1:4713 held by other uid=$_held (stale Pulse after reinstall)"
+    audio_fail "sink=$(sink_name) tcp:127.0.0.1:${PULSE_PORT} held by other uid=$_held (stale Pulse after reinstall)"
   fi
-  audio_fail "sink=$(sink_name) but tcp:127.0.0.1:4713 not reachable${TCP_LOAD_ERR:+ load=$TCP_LOAD_ERR}"
+  audio_fail "sink=$(sink_name) but tcp:127.0.0.1:${PULSE_PORT} not reachable${TCP_LOAD_ERR:+ load=$TCP_LOAD_ERR}"
 fi
 
-echo "FluxLinux: [AUDIO] sink=$(sink_name) tcp=127.0.0.1:4713"
+echo "FluxLinux: [AUDIO] sink=$(sink_name) tcp=127.0.0.1:${PULSE_PORT}"
 exit 0

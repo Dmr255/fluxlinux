@@ -9,6 +9,7 @@ on:
         options:
           - ivarna       # com.ivarna.fluxlinux
           - zenithblue   # com.zenithblue.fluxlinux
+          - dmr255       # com.dmr255.fluxlinux
         default: ivarna
       buildType:
         description: "Build type"
@@ -98,14 +99,33 @@ jobs:
           case "$FLAVOR" in
             ivarna)     APP_ID=com.ivarna.fluxlinux ;;
             zenithblue) APP_ID=com.zenithblue.fluxlinux ;;
+            dmr255)     APP_ID=com.dmr255.fluxlinux ;;
             *) echo "unknown flavor: $FLAVOR" >&2; exit 1 ;;
           esac
           echo "app-id=$APP_ID"
 
+          # dmr255 has no committed .deb set of its own: derive it from the
+          # official ivarna packages with an in-place prefix byte patch.
+          # com.dmr255.fluxlinux and com.ivarna.fluxlinux are the same length,
+          # so no ELF offset shifts.
+          EXTRA=()
+          DEB_DIR="native/output/$APP_ID"
+          if [ ! -d "$DEB_DIR" ]; then
+            case "$FLAVOR" in
+              dmr255)
+                DEB_DIR="native/output/com.ivarna.fluxlinux"
+                EXTRA=(--rewrite-from com.ivarna.fluxlinux)
+                ;;
+              *) echo "missing deb dir: $DEB_DIR" >&2; exit 1 ;;
+            esac
+          fi
+          echo "deb-dir=$DEB_DIR ${EXTRA[*]-}"
+
           python3 scripts/assemble_bootstrap.py \
             --package-name "$APP_ID" \
-            --deb-dir "native/output/$APP_ID" \
+            --deb-dir "$DEB_DIR" \
             --list native/package-lists/bootstrap-host.txt \
+            "${EXTRA[@]}" \
             --mode full
 
           bash scripts/verify_bootstrap.sh "$APP_ID"

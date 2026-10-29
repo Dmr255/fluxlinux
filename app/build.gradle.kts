@@ -28,7 +28,8 @@ android {
         }
     }
 
-    // Dual app-id flavors: ivarna (F-Droid/GitHub) + zenithblue (Play).
+    // App-id flavors: ivarna (F-Droid/GitHub) + zenithblue (Play) + dmr255
+    // (personal fork that must install alongside the official FluxLinux).
     // Host bootstrap + jniLibs ship per flavor from native/bootstrap/<applicationId>/
     // staged by :app:packageHostAssets* (runs scripts/package_host_assets.sh).
     flavorDimensions += "store"
@@ -43,6 +44,13 @@ android {
         create("zenithblue") {
             dimension = "store"
             applicationId = "com.zenithblue.fluxlinux"
+        }
+        // com.dmr255.fluxlinux is exactly the same length as com.ivarna.fluxlinux
+        // (20 chars), so host ELF prefix strings can be byte-patched in place
+        // without moving offsets. See scripts/assemble_bootstrap.py --rewrite-from.
+        create("dmr255") {
+            dimension = "store"
+            applicationId = "com.dmr255.fluxlinux"
         }
     }
 
@@ -158,7 +166,8 @@ tasks.withType<AbstractArchiveTask>().configureEach {
 // ─────────────────────────────────────────────────────────────────────────────
 val flavorAppIds = mapOf(
     "ivarna" to "com.ivarna.fluxlinux",
-    "zenithblue" to "com.zenithblue.fluxlinux"
+    "zenithblue" to "com.zenithblue.fluxlinux",
+    "dmr255" to "com.dmr255.fluxlinux"
 )
 
 // assets/loader.apk is built from native/loader/Loader.java by

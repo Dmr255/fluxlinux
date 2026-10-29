@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- dmr255 fork: deep teal background, clearly different from the stock
+     FluxLinux #1A1C1E charcoal, so the two launchers are distinguishable. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#0E3B43" />
+</shape>

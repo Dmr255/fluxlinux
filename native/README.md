@@ -6,6 +6,7 @@ Custom-prefix Termux packages for the **embedded native terminal**, one tree per
 |----------------|------------------|--------|
 | `com.ivarna.fluxlinux` | F-Droid / GitHub | `output/com.ivarna.fluxlinux/` |
 | `com.zenithblue.fluxlinux` | Google Play | `output/com.zenithblue.fluxlinux/` |
+| `com.dmr255.fluxlinux` | Personal fork (side-by-side) | derived from `output/com.ivarna.fluxlinux/` via `assemble_bootstrap.py --rewrite-from` |
 
 Plan: [`docs/plans/termux-native-packages-dual-appid.md`](../docs/plans/termux-native-packages-dual-appid.md)
 
@@ -91,6 +92,24 @@ FORCE=1 CONTINUE_ON_FAIL=1 ./scripts/build_packages_for_appid.sh \
 ./scripts/verify_bootstrap.sh com.zenithblue.fluxlinux
 ```
 
+### dmr255 fork (no committed `.deb` set)
+
+`com.dmr255.fluxlinux` is the same byte length as `com.ivarna.fluxlinux`, so its
+host tree is derived from the official packages with an in-place prefix patch
+instead of committing a second ~98 MB copy:
+
+```bash
+./scripts/assemble_bootstrap.py --package-name com.dmr255.fluxlinux \
+  --deb-dir native/output/com.ivarna.fluxlinux \
+  --rewrite-from com.ivarna.fluxlinux \
+  --list native/package-lists/bootstrap-host.txt --mode full
+./scripts/verify_bootstrap.sh com.dmr255.fluxlinux
+```
+
+The rewrite replaces the bare app id (host env, RUNPATH-style strings) and the
+absolute `/data/data/<id>/files` prefix inside every file, and retargets absolute
+symlinks. ELF offsets do not move because both ids are 20 chars.
+
 **Status (2026-08-05):** both app IDs have SSOT 62/62 debs, `bootstrap.tar` (~122 MB), jniLibs, `verify_bootstrap.sh` **PASS**.
 
 ### Stage into the app APK (before every APK build)
@@ -104,10 +123,11 @@ is the task's implementation; use it directly only for offline staging / debuggi
 # Staging script: verifies + copies per-flavor assets + jniLibs (gitignored, regenerate)
 ./scripts/package_host_assets.sh com.ivarna.fluxlinux      # → app/src/ivarna/{assets,jniLibs}
 ./scripts/package_host_assets.sh com.zenithblue.fluxlinux  # → app/src/zenithblue/{assets,jniLibs}
-./scripts/package_host_assets.sh --all                     # both
+./scripts/package_host_assets.sh --all                     # all three ids
 
 # Then build the APK flavor (package task runs as dependency)
 ./gradlew :app:assembleIvarnaDebug      # or :app:assembleZenithblueDebug
+                                        # or :app:assembleDmr255Debug
 
 # Optional CI check of the built APK contents
 ./scripts/verify_apk_host_assets.sh app/build/outputs/apk/ivarna/debug/app-ivarna-debug.apk
@@ -126,7 +146,7 @@ FORCE_DEPS=1 ./scripts/build_packages_for_appid.sh com.ivarna.fluxlinux bash
 
 ## Important rules
 
-1. **Never** ship a bootstrap built for another applicationId.
+1. **Never** ship a bootstrap built for another applicationId — the only exception is the deliberate, equal-length `--rewrite-from` derivation used for `com.dmr255.fluxlinux` (see above), which patches every prefix string and symlink.
 2. Changing `TERMUX_APP__PACKAGE_NAME` invalidates reuse of stock `com.termux` repo debs; dependencies are built locally.
 3. Do **not** reuse `com.zenithblue.nativecode` debs from termux-lib for FluxLinux.
 4. Keep `loader.apk` Java class names as `com.termux.x11.Loader` (do not sed class names).

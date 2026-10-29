@@ -8,11 +8,31 @@ if [ -z "${TARGET_PREFIX:-}" ]; then
     TARGET_PREFIX="$FLUX_PREFIX"
   elif [ -n "${FLUX_PACKAGE:-}" ]; then
     TARGET_PREFIX="/data/data/${FLUX_PACKAGE}/files/usr"
-  elif [ -d /data/data/com.zenithblue.fluxlinux/files/usr ]; then
-    TARGET_PREFIX="/data/data/com.zenithblue.fluxlinux/files/usr"
-  else
-    TARGET_PREFIX="/data/data/com.ivarna.fluxlinux/files/usr"
   fi
+fi
+
+# Derive the package from an already-exported prefix, else from the host env
+# file that only FluxLinux writes. Never hardcode another flavor's app id.
+_flux_pkg_from_prefix() {
+  _p=$1
+  _p=${_p#*"/data/data/"}
+  case "$_p" in
+    "$1") printf '' ;;
+    *) printf '%s' "${_p%%/*}" ;;
+  esac
+}
+if [ -z "${FLUX_PACKAGE:-}" ]; then
+  FLUX_PACKAGE="$(_flux_pkg_from_prefix "${TARGET_PREFIX:-${TERMUX__PREFIX:-$0}}")"
+fi
+if [ -z "${FLUX_PACKAGE:-}" ]; then
+  for _h in /data/data/*/files/usr/etc/fluxlinux-host.env; do
+    [ -r "$_h" ] || continue
+    FLUX_PACKAGE="$(_flux_pkg_from_prefix "$_h")"
+    [ -n "$FLUX_PACKAGE" ] && break
+  done
+fi
+if [ -z "${TARGET_PREFIX:-}" ] && [ -n "${FLUX_PACKAGE:-}" ]; then
+  TARGET_PREFIX="/data/data/${FLUX_PACKAGE}/files/usr"
 fi
 
 echo "========================================"
@@ -74,9 +94,22 @@ echo "[2/4] Stop Termux X11 host processes..."
 # Restore loader write bits for redeploy
 chmod 0700 "$TARGET_PREFIX/libexec/termux-x11" 2>/dev/null || true
 chmod 0600 "$TARGET_PREFIX/libexec/termux-x11/loader.apk" 2>/dev/null || true
-pkill -9 -f "termux-x11" 2>/dev/null || true
-pkill -9 -f "app_process.*termux-x11" 2>/dev/null || true
-killall -9 Xwayland 2>/dev/null || true
+# This script runs as ROOT, so a bare `pkill -f termux-x11` would also kill the
+# X server of any other FluxLinux app id installed side by side (same cmdline
+# `app_process / --nice-name=termux-x11 ...`, no package id in it). Scope the
+# kill to this package's UID, derived from its own prefix directory.
+_target_uid=""
+if [ -n "${TARGET_PREFIX:-}" ] && [ -d "$TARGET_PREFIX" ]; then
+  _target_uid="$(stat -c %u "$TARGET_PREFIX" 2>/dev/null || true)"
+fi
+if [ -n "${_target_uid:-}" ]; then
+  # `pkill -U` is available in toybox and busybox. No `killall Xwayland` here:
+  # the embedded X server is in-process (EmbeddedX11), and a global killall
+  # would hit another FluxLinux app's Xwayland.
+  pkill -9 -U "$_target_uid" -f "termux-x11" 2>/dev/null || true
+else
+  echo "[2/4] WARN: cannot resolve app uid for '$TARGET_PREFIX'; leaving host X11 alone"
+fi
 rm -rf "$TARGET_PREFIX/tmp/.X11-unix" "$TARGET_PREFIX/tmp/.X0-lock" "$TARGET_PREFIX/tmp/.X1-lock" 2>/dev/null || true
 
 echo "[3/4] Unmount chroot binds (best-effort)..."

@@ -1,4 +1,15 @@
 #!/system/bin/sh
+# Derive the app id from a /data/data/<pkg>/... path without forking any
+# external binary: sed/grep/dirname under $PREFIX/bin are ELF files in
+# app_data_file, which targetSdk 36 W^X refuses to exec (EACCES).
+_flux_pkg_from_prefix() {
+  _p=$1
+  _p=${_p#*"/data/data/"}
+  case "$_p" in
+    "$1") printf '' ;;
+    *) printf '%s' "${_p%%/*}" ;;
+  esac
+}
 # fluxlinux-chroot v2.9
 # SSOT chroot runner for NativeCode Debian 13 (requires root).
 # Do not nest this under run_debian13_root.sh — it already owns mounts + one chroot.
@@ -18,13 +29,17 @@
 set -u
 
 VERSION_STR="fluxlinux-chroot v2.9"
-# Prefer caller-pinned env (RootShell / start_gui). Fallbacks cover both store flavors.
+# Prefer caller-pinned env (RootShell / start_gui). Otherwise derive the
+# package from a real prefix; never assume another flavor's app id.
 if [ -z "${FLUX_PACKAGE:-}" ]; then
-  if [ -d /data/data/com.zenithblue.fluxlinux/files/usr ]; then
-    FLUX_PACKAGE=com.zenithblue.fluxlinux
-  else
-    FLUX_PACKAGE=com.ivarna.fluxlinux
-  fi
+  FLUX_PACKAGE="$(_flux_pkg_from_prefix "${FLUX_PREFIX:-${TARGET_PREFIX:-}}")"
+fi
+if [ -z "${FLUX_PACKAGE:-}" ]; then
+  for _h in /data/data/*/files/usr/etc/fluxlinux-host.env; do
+    [ -r "$_h" ] || continue
+    FLUX_PACKAGE="$(_flux_pkg_from_prefix "$_h")"
+    [ -n "$FLUX_PACKAGE" ] && break
+  done
 fi
 FLUX_CHROOT="${FLUX_CHROOT:-/data/local/tmp/chrootDebian13}"
 FLUX_HOST_TMP="${FLUX_HOST_TMP:-/data/data/${FLUX_PACKAGE}/files/usr/tmp}"

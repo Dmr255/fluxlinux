@@ -86,8 +86,13 @@ case "$DISTRO" in
         ;;
 esac
 
-# Resolve script directory (deployed to $HOME or $HOME/scripts)
-SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)" || SCRIPT_DIR=""
+# Resolve script directory (deployed to $HOME or $HOME/scripts).
+# No dirname/basename: those resolve to ELF files under $PREFIX/bin, which
+# targetSdk 36 W^X refuses to exec from app_data_file (EACCES).
+case "$0" in
+    */*) SCRIPT_DIR="${0%/*}" ;;
+    *)   SCRIPT_DIR="." ;;
+esac
 DEFAULT_SETUP=""
 for candidate in \
     "${SCRIPT_DIR}/${FAMILY_SCRIPT_NAME}" \
@@ -100,7 +105,15 @@ do
     fi
 done
 
-PKG="${TERMUX_APP__PACKAGE_NAME:-com.ivarna.fluxlinux}"
+_flux_pkg_from_prefix() {
+  _p=$1
+  _p=${_p#*"/data/data/"}
+  case "$_p" in
+    "$1") printf '' ;;
+    *) printf '%s' "${_p%%/*}" ;;
+  esac
+}
+PKG="${TERMUX_APP__PACKAGE_NAME:-$(_flux_pkg_from_prefix "${TERMUX__PREFIX:-$0}")}"
 PREFIX_DEFAULT="${TERMUX__PREFIX:-/data/data/${PKG}/files/usr}"
 
 # SSOT env from Kotlin TermuxHostPaths
@@ -116,7 +129,7 @@ export TERMUX__HOME="${TERMUX__HOME:-/data/data/${TERMUX_APP__PACKAGE_NAME}/file
 export PREFIX="${PREFIX:-$TERMUX__PREFIX}"
 export HOME="${HOME:-$TERMUX__HOME}"
 export TMPDIR="${TMPDIR:-$PREFIX/tmp}"
-export PROOT_TMP_DIR="${PROOT_TMP_DIR:-$(dirname "$PREFIX")/proot-tmp}"
+export PROOT_TMP_DIR="${PROOT_TMP_DIR:-${PREFIX%/*}/proot-tmp}"
 export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-$PREFIX/lib}"
 export PATH="$PREFIX/bin:$PREFIX/bin/applets:/system/bin:/system/xbin${PATH:+:$PATH}"
 
@@ -136,7 +149,7 @@ if [ -r "$PREFIX/etc/profile" ]; then
     export PREFIX
     export HOME
     export TMPDIR="$PREFIX/tmp"
-    export PROOT_TMP_DIR="$(dirname "$PREFIX")/proot-tmp"
+    export PROOT_TMP_DIR="${PREFIX%/*}/proot-tmp"
     export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-$PREFIX/lib}"
     export PATH="$PREFIX/bin:$PREFIX/bin/applets:/system/bin:/system/xbin${PATH:+:$PATH}"
 fi
@@ -359,7 +372,12 @@ else
             case "$ROOTFS_ARCHIVE" in
                 /*|~*) ;;
                 ./*|../*) ;;
-                *) ROOTFS_ARCHIVE="$(cd "$(dirname "$ROOTFS_ARCHIVE")" && pwd)/$(basename "$ROOTFS_ARCHIVE")" ;;
+                *)
+                    _ra_dir="${ROOTFS_ARCHIVE%/*}"
+                    _ra_base="${ROOTFS_ARCHIVE##*/}"
+                    [ "$_ra_dir" = "$ROOTFS_ARCHIVE" ] && _ra_dir="."
+                    ROOTFS_ARCHIVE="$(cd "$_ra_dir" && pwd)/$_ra_base"
+                    ;;
             esac
             if ! verify_rootfs_sha "$ROOTFS_ARCHIVE"; then
                 exit 1

@@ -137,6 +137,27 @@ public class CmdEntryPoint extends ICmdEntryInterface.Stub {
         new Thread(this::listenForConnections).start();
     }
 
+    /**
+     * Real `nativeLibraryDir` for [pkg], or null when it cannot be resolved.
+     *
+     * The path embeds an install hash that changes on every update, so it must
+     * be queried at runtime instead of being cached in a shell script. Failures
+     * are non-fatal: callers fall back to the legacy /data/data/<pkg>/lib path.
+     */
+    private static String nativeLibraryDirOf(String pkg) {
+        try {
+            if (ctx == null)
+                return null;
+            android.content.pm.ApplicationInfo ai =
+                ctx.getPackageManager().getApplicationInfo(pkg, 0);
+            if (ai != null && ai.nativeLibraryDir != null)
+                return ai.nativeLibraryDir;
+        } catch (Throwable t) {
+            Log.w("CmdEntryPoint", "nativeLibraryDir lookup failed for " + pkg, t);
+        }
+        return null;
+    }
+
     /** @noinspection DataFlowIssue*/
     @SuppressLint("DiscouragedPrivateApi")
     public static Context createContext() {
@@ -191,10 +212,22 @@ public class CmdEntryPoint extends ICmdEntryInterface.Stub {
             // Under targetSdk 36, library loading from apk inside app_process namespace fails.
             // Fall back to the extracted library directory of the host app package
             // (embedded X11: the host app is the package that carries libXlorie.so).
+            //
+            // Resolution order, most reliable first:
+            //  1. TERMUX_X11_LIB_DIR — exported by start_gui*.sh from
+            //     fluxlinux-host.env (TermuxHostPaths.kt, real nativeLibraryDir).
+            //  2. PackageManager for TERMUX_X11_OVERRIDE_PACKAGE. nativeLibraryDir
+            //     changes on every update, so querying beats a cached path.
+            //  3. /data/data/<pkg>/lib — legacy compat symlink; may not exist.
+            String libDir = getenv("TERMUX_X11_LIB_DIR");
             String pkg = getenv("TERMUX_X11_OVERRIDE_PACKAGE");
-            if (pkg == null)
+            if (pkg == null || pkg.isEmpty())
                 pkg = "com.termux.x11";
-            libPath = "/data/data/" + pkg + "/lib/libXlorie.so";
+            if (libDir == null || libDir.isEmpty()) {
+                String nld = nativeLibraryDirOf(pkg);
+                libDir = nld != null ? nld : "/data/data/" + pkg + "/lib";
+            }
+            libPath = libDir + "/libXlorie.so";
         }
         if (libPath != null) {
             try {

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- dmr255 fork launcher mark: a terminal prompt ">_" inside a rounded frame,
+     drawn with paths only (no raster assets, so no image tooling is needed).
+     Adaptive icons use a 108dp viewport; content stays inside the 72dp safe
+     zone (18dp inset on every side). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Rounded terminal window -->
+    <path
+        android:fillColor="#7FE7C4"
+        android:pathData="M30,34 h48 a8,8 0 0 1 8,8 v24 a8,8 0 0 1 -8,8 h-48 a8,8 0 0 1 -8,-8 v-24 a8,8 0 0 1 8,-8 z" />
+
+    <!-- Window chrome bar -->
+    <path
+        android:fillColor="#0E3B43"
+        android:pathData="M30,34 h48 a8,8 0 0 1 8,8 v5 h-64 v-5 a8,8 0 0 1 8,-8 z" />
+
+    <!-- Three chrome dots -->
+    <path
+        android:fillColor="#7FE7C4"
+        android:pathData="M32,40 m-2.5,0 a2.5,2.5 0 1,0 5,0 a2.5,2.5 0 1,0 -5,0" />
+    <path
+        android:fillColor="#7FE7C4"
+        android:pathData="M41,40 m-2.5,0 a2.5,2.5 0 1,0 5,0 a2.5,2.5 0 1,0 -5,0" />
+    <path
+        android:fillColor="#7FE7C4"
+        android:pathData="M50,40 m-2.5,0 a2.5,2.5 0 1,0 5,0 a2.5,2.5 0 1,0 -5,0" />
+
+    <!-- Prompt chevron ">" -->
+    <path
+        android:fillColor="#0E3B43"
+        android:pathData="M38,53 L46,59 L38,65"
+        android:strokeColor="#0E3B43"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Cursor underscore "_" -->
+    <path
+        android:fillColor="#0E3B43"
+        android:pathData="M52,64 h12"
+        android:strokeColor="#0E3B43"
+        android:strokeWidth="4"
+        android:strokeLineCap="round" />
+</vector>

@@ -12,7 +12,15 @@ GUESTPATH="${FLUX_CHROOT:-/data/local/tmp/chrootGuest}"
 USERNAME="flux"
 DISTRO_LABEL="${FLUX_DISTRO_LABEL:-guest}"
 
-PKG="${TERMUX_APP__PACKAGE_NAME:-com.ivarna.fluxlinux}"
+_flux_pkg_from_prefix() {
+  _p=$1
+  _p=${_p#*"/data/data/"}
+  case "$_p" in
+    "$1") printf '' ;;
+    *) printf '%s' "${_p%%/*}" ;;
+  esac
+}
+PKG="${TERMUX_APP__PACKAGE_NAME:-$(_flux_pkg_from_prefix "${TERMUX__PREFIX:-$0}")}"
 APP_HOME="${TERMUX__HOME:-/data/data/${PKG}/files/home}"
 APP_PREFIX="${TERMUX__PREFIX:-/data/data/${PKG}/files/usr}"
 ROOTFS_NAME="${FLUX_ROOTFS_NAME:-rootfs.tar.xz}"

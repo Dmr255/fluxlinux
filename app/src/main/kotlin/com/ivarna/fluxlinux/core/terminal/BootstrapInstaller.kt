@@ -98,7 +98,7 @@ object BootstrapInstaller {
             File(ctx.filesDir, "home").mkdirs()
 
             val source = resolveBootstrapSource(ctx, onProgress) ?: throw IllegalStateException(
-                "host bootstrap missing — place ${HostBootstrap.forApplicationId(ctx.packageName).fileName} " +
+                "host bootstrap missing — place ${HostBootstrap.expectedFileName(ctx.packageName)} " +
                     "in the app home directory or allow the GitHub download"
             )
             onProgress(0L, source.totalBytes, "Extracting host bootstrap")
@@ -177,6 +177,13 @@ object BootstrapInstaller {
         }
 
         val pin = HostBootstrap.forApplicationId(ctx.packageName)
+        if (pin == null) {
+            // This applicationId has no published release archive (e.g. a fork).
+            // Never substitute another id's pin: its SHA would verify a foreign
+            // prefix. The APK asset is the only supported source for this id.
+            Log.e(TAG, "no release bootstrap pin for ${ctx.packageName}; APK asset is required")
+            return null
+        }
         val destDir = TermuxHostPaths.homeDir(ctx)
         val ok = RootfsDownloader.ensurePresent(
             destDir,

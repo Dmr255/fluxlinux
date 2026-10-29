@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- dmr255 fork: distinct launcher name so it is never confused with the
+         official FluxLinux (com.ivarna.fluxlinux) installed side by side. -->
+    <string name="app_name">FluxLinux DMR</string>
+</resources>

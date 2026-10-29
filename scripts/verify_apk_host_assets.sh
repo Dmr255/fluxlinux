@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # verify_apk_host_assets.sh — unzip checks that the built APK contains the host
-# jniLibs and — since rootfs (and ivarna bootstrap) moved to GitHub release
-# download — contains ZERO assets/rootfs/* entries. Ivarna must not package
-# assets/bootstrap.tar; zenithblue still must (STORED).
+# jniLibs and — since rootfs moved to GitHub release download — contains ZERO
+# assets/rootfs/* entries. Ivarna must not package assets/bootstrap.tar
+# (downloaded at init); zenithblue and dmr255 must package it (STORED).
 #
 # Usage:
 #   ./scripts/verify_apk_host_assets.sh app/build/outputs/apk/ivarna/debug/app-ivarna-debug.apk
 #   ./scripts/verify_apk_host_assets.sh app/build/outputs/apk/zenithblue/debug/app-zenithblue-debug.apk
+#   ./scripts/verify_apk_host_assets.sh app/build/outputs/apk/dmr255/debug/app-dmr255-debug.apk
 set -euo pipefail
 
 APK="${1:-}"
@@ -19,9 +20,9 @@ fail=0
 
 echo "=== verifying host assets in $APK ==="
 
-# Ivarna downloads bootstrap.tar from GitHub; zenithblue still packages it.
+# Ivarna downloads bootstrap.tar from GitHub; zenithblue and dmr255 package it.
 case "$APK" in
-  *ivarna*) expect_bootstrap=0 ;;
+  */ivarna/*|*-ivarna-*) expect_bootstrap=0 ;;
   *) expect_bootstrap=1 ;;
 esac
 

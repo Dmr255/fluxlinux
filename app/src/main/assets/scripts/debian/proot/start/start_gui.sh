@@ -1,9 +1,20 @@
-#!/data/data/com.ivarna.fluxlinux/files/usr/bin/bash
+#!/usr/bin/env bash
+# Derive the app id from a /data/data/<pkg>/... path without forking any
+# external binary: sed/grep/dirname under $PREFIX/bin are ELF files in
+# app_data_file, which targetSdk 36 W^X refuses to exec (EACCES).
+_flux_pkg_from_prefix() {
+  _p=$1
+  _p=${_p#*"/data/data/"}
+  case "$_p" in
+    "$1") printf '' ;;
+    *) printf '%s' "${_p%%/*}" ;;
+  esac
+}
 # start_gui.sh - Launch XFCE4 Desktop Environment in PRoot Distro
 # Paths: TermuxHostPaths via fluxlinux-host.env (SSOT)
 
 DISTRO=${1:-debian}
-PKG="${TERMUX_APP__PACKAGE_NAME:-com.ivarna.fluxlinux}"
+PKG="${TERMUX_APP__PACKAGE_NAME:-$(_flux_pkg_from_prefix "${TERMUX__PREFIX:-$0}")}"
 _HOST_ENV="${TERMUX__PREFIX:-/data/data/${PKG}/files/usr}/etc/fluxlinux-host.env"
 [ -r "$_HOST_ENV" ] && . "$_HOST_ENV"
 
@@ -13,7 +24,7 @@ TERMUX_PREFIX="${TERMUX__PREFIX:-/data/data/$PKG/files/usr}"
 TERMUX_HOME="${TERMUX__HOME:-/data/data/$PKG/files/home}"
 export HOME="$TERMUX_HOME"
 export TMPDIR="${TMPDIR:-$TERMUX_PREFIX/tmp}"
-export PROOT_TMP_DIR="${PROOT_TMP_DIR:-$(dirname "$TERMUX_PREFIX")/proot-tmp}"
+export PROOT_TMP_DIR="${PROOT_TMP_DIR:-${TERMUX_PREFIX%/*}/proot-tmp}"
 mkdir -p "$TMPDIR" "$PROOT_TMP_DIR" 2>/dev/null || true
 chmod 1777 "$TMPDIR" 2>/dev/null || true
 chmod 700 "$PROOT_TMP_DIR" 2>/dev/null || true
@@ -24,17 +35,34 @@ export TERMUX_X11_OVERRIDE_PACKAGE="$PKG"
 export TERMUX__PREFIX="$TERMUX_PREFIX"
 export TERMUX__HOME="$TERMUX_HOME"
 export XKB_CONFIG_ROOT="$TERMUX_PREFIX/share/X11/xkb"
+# Host Pulse listens on a per-app-id TCP port (TermuxHostPaths.PULSE_PORT via
+# fluxlinux-host.env): TCP ports are device-wide, so a second FluxLinux id must
+# not reuse 4713. 4713 stays the default for the legacy ids.
+FLUX_PULSE_PORT="${FLUX_PULSE_PORT:-4713}"
+FLUX_PULSE_SERVER="${FLUX_PULSE_SERVER:-tcp:127.0.0.1:$FLUX_PULSE_PORT}"
+export FLUX_PULSE_PORT FLUX_PULSE_SERVER
 
 # Configure PulseAudio (use home to avoid root-owned stale tmp dirs)
 export PULSE_RUNTIME_PATH="${HOME}/.pulse"
 mkdir -p "$PULSE_RUNTIME_PATH" 2>/dev/null
 
-# Kill stale host graphics services only — NEVER am force-stop own package
-# (that would kill FluxLinux itself if the package name matches).
+# Kill stale host graphics services for THIS app only.
+# NEVER am force-stop own package (that would kill FluxLinux itself).
 # Pulse is a host service: do not pkill it here (CLI audio stays up).
+# Kill only THIS app's stale X server. The server runs as
+# `app_process / --nice-name=termux-x11 com.termux.x11.Loader ...`, so its
+# cmdline carries no package id — matching "$PKG" would never hit it.
+# Android UID isolation already prevents signalling other apps, so pin the
+# UID explicitly instead of relying on that. No global `killall Xwayland`
+# either: the X server is in-process (EmbeddedX11), and a global kill would
+# hit another FluxLinux app.
+_our_uid="${UID:-$(/system/bin/id -u 2>/dev/null)}"
+kill_our_x11() {
+  [ -n "$_our_uid" ] || return 0
+  pkill "-$1" -U "$_our_uid" -f "termux-x11" 2>/dev/null || true
+}
 pkill -f "virgl_test_server" 2>/dev/null || true
-pkill -f termux-x11 2>/dev/null || true
-pkill -f "app_process.*termux-x11" 2>/dev/null || true
+kill_our_x11 9
 sleep 2
 # Stale UNIX sockets make Loader fail with "server already running"
 rm -f "$TMPDIR/.X0-lock" "$TMPDIR/.X1-lock" "$TMPDIR/.tX0-lock" \
@@ -101,25 +129,12 @@ fi
 export TERMUX_X11_APK_PATH
 echo "FluxLinux: APK path = $TERMUX_X11_APK_PATH"
 
-# Extract libXlorie.so from our APK to /data/data app lib dir
-# This is the only location app_process can dlopen without corrupting its linker namespace
-APP_LIB_DIR="/data/data/$PKG/lib"
-mkdir -p "$APP_LIB_DIR" 2>/dev/null
-# Re-extract when the APK is newer, else an app update keeps running the old X server.
-if { [ ! -f "$APP_LIB_DIR/libXlorie.so" ] || [ "$TERMUX_X11_APK_PATH" -nt "$APP_LIB_DIR/libXlorie.so" ]; } && [ -n "$TERMUX_X11_APK_PATH" ]; then
-  echo "FluxLinux: Extracting libXlorie.so from APK..."
-  # Try arm64 first, then armeabi-v7a
-  ( cd "$APP_LIB_DIR" && \
-    unzip -o "$TERMUX_X11_APK_PATH" 'lib/arm64-v8a/libXlorie.so' 2>/dev/null && \
-    mv -f lib/arm64-v8a/libXlorie.so . && rm -rf lib ) || \
-  ( cd "$APP_LIB_DIR" && \
-    unzip -o "$TERMUX_X11_APK_PATH" 'lib/armeabi-v7a/libXlorie.so' 2>/dev/null && \
-    mv -f lib/armeabi-v7a/libXlorie.so . && rm -rf lib )
-  touch "$APP_LIB_DIR/libXlorie.so" 2>/dev/null # unzip keeps the 1981 entry mtime
-  ls -la "$APP_LIB_DIR/libXlorie.so" 2>/dev/null && \
-    echo "FluxLinux: libXlorie.so ready in $APP_LIB_DIR" || \
-    echo "FluxLinux: [WARN] libXlorie.so extraction failed"
-fi
+# libXlorie.so is extracted by the Android packager (useLegacyPackaging) to
+# nativeLibraryDir, which is where CmdEntryPoint loads it from. Do NOT try to
+# unzip it here: neither /system/bin/unzip nor a bootstrap `unzip` exists, and
+# /data/data/<pkg>/lib is only a compat symlink.
+APP_LIB_DIR="${TERMUX_X11_LIB_DIR:-/data/data/$PKG/lib}"
+export TERMUX_X11_LIB_DIR="$APP_LIB_DIR"
 
 # Launch the X server via app_process
 # CLEAR LD_LIBRARY_PATH — setting it to Termux libs breaks system linker (libunwindstack.so)
@@ -184,7 +199,7 @@ echo "FluxLinux: Guest GPU mode=$GPU_MODE"
 # Launch XFCE in proot — propagate guest exit code (never force exit 0)
 GUEST_RC=0
 if [ "$DISTRO" = "termux" ]; then
-  export PULSE_SERVER=tcp:127.0.0.1
+  export PULSE_SERVER="$FLUX_PULSE_SERVER"
   env DISPLAY=:0 startxfce4
   GUEST_RC=$?
 else
@@ -199,12 +214,13 @@ else
     _KGSL_BIND="--bind=/dev/kgsl-3d0"
   fi
   python "$TERMUX_PREFIX/bin/proot-distro" login "$DISTRO" --shared-tmp $_KGSL_BIND -- \
-    env FLUX_DESKTOP="$FLUX_DESKTOP" FLUX_GPU_RUNTIME="${FLUX_GPU_RUNTIME:-}" $GUEST_SHELL -c '
+    env FLUX_DESKTOP="$FLUX_DESKTOP" FLUX_GPU_RUNTIME="${FLUX_GPU_RUNTIME:-}" \
+        FLUX_PULSE_SERVER="$FLUX_PULSE_SERVER" $GUEST_SHELL -c '
     export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     unset PROOT_TMP_DIR
     export TMPDIR=/tmp
     export DISPLAY=:0
-    export PULSE_SERVER=tcp:127.0.0.1
+    export PULSE_SERVER="${FLUX_PULSE_SERVER:-tcp:127.0.0.1:4713}"
     export VTEST_SOCKET_NAME=/tmp/.virgl_test
     # Alpine glycin SVG loaders use bwrap — fails under proot and aborts GTK.
     export GLYCIN_DISABLE_SANDBOX=1
@@ -377,7 +393,7 @@ KDE_EOF
     su -s "$FLUX_SU_SHELL" - flux -c "
       unset DBUS_SESSION_BUS_ADDRESS DBUS_SESSION_BUS_PID DBUS_SESSION_BUS_WINDOWID
       export DISPLAY=:0
-      export PULSE_SERVER=tcp:127.0.0.1
+      export PULSE_SERVER=$FLUX_PULSE_SERVER
       export XDG_CONFIG_DIRS=/etc/xdg
       export XDG_DATA_DIRS=/usr/local/share:/usr/share
       export HOME=/home/flux

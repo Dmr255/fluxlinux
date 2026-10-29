@@ -1,4 +1,8 @@
 #!/bin/bash
+
+# Pulse target comes from the host SSOT env (FLUX_PULSE_SERVER). TCP ports are
+# device-wide, so a second FluxLinux app id uses a different port than 4713.
+FLUX_PULSE_SERVER="${FLUX_PULSE_SERVER:-${PULSE_SERVER:-tcp:127.0.0.1:4713}}"
 # setup_debian_family.sh
 # Generic Post-install configuration for Debian-based Distros (Debian, Ubuntu, Kali, etc.)
 
@@ -38,10 +42,15 @@ echo "flux ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/flux
 
 # 4. Configure VNC for User
 mkdir -p /home/flux/.vnc
-echo "#!/bin/bash
-export PULSE_SERVER=tcp:127.0.0.1
+cat > /home/flux/.vnc/xstartup <<'EOF'
+#!/bin/bash
+export PULSE_SERVER=tcp:127.0.0.1:4713
 xrdb $HOME/.Xresources
-startxfce4" > /home/flux/.vnc/xstartup
+startxfce4
+EOF
+# $HOME stays literal in the quoted heredoc; only the server line is patched.
+sed -i "s|^export PULSE_SERVER=.*|export PULSE_SERVER=$FLUX_PULSE_SERVER|" \
+    /home/flux/.vnc/xstartup
 chmod +x /home/flux/.vnc/xstartup
 chown -R flux:flux /home/flux/.vnc
 
@@ -49,19 +58,19 @@ if command -v _flux_write_pulse_client >/dev/null 2>&1; then
     _flux_write_pulse_client
 else
     mkdir -p /etc/profile.d /etc/pulse/client.conf.d
-    printf 'export PULSE_SERVER=tcp:127.0.0.1\n' > /etc/profile.d/flux-pulse.sh
+    printf 'export PULSE_SERVER=%s\n' "$FLUX_PULSE_SERVER" > /etc/profile.d/flux-pulse.sh
     chmod 644 /etc/profile.d/flux-pulse.sh 2>/dev/null || true
     if [ -f /etc/environment ]; then
         if grep -q '^PULSE_SERVER=' /etc/environment 2>/dev/null; then
-            sed -i 's|^PULSE_SERVER=.*|PULSE_SERVER=tcp:127.0.0.1|' /etc/environment
+            sed -i "s|^PULSE_SERVER=.*|PULSE_SERVER=$FLUX_PULSE_SERVER|" /etc/environment
         else
-            printf 'PULSE_SERVER=tcp:127.0.0.1\n' >> /etc/environment
+            printf 'PULSE_SERVER=%s\n' "$FLUX_PULSE_SERVER" >> /etc/environment
         fi
     else
-        printf 'PULSE_SERVER=tcp:127.0.0.1\n' > /etc/environment
+        printf 'PULSE_SERVER=%s\n' "$FLUX_PULSE_SERVER" > /etc/environment
     fi
-    cat > /etc/pulse/client.conf.d/99-fluxlinux.conf <<'EOF'
-default-server = tcp:127.0.0.1
+    cat > /etc/pulse/client.conf.d/99-fluxlinux.conf <<EOF
+default-server = $FLUX_PULSE_SERVER
 autospawn = no
 EOF
     if [ -f /etc/pulse/client.conf ]; then

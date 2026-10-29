@@ -106,7 +106,7 @@ object PulseHost {
         // Exec libpactl.so directly. Do not go through toybox `env` (paths contain
         // `=`) or `libbash -c` + `exec "$0"` (termux-exec then looks up `$0`).
         val extra = hashMapOf(
-            "PULSE_SERVER" to "tcp:127.0.0.1",
+            "PULSE_SERVER" to TermuxHostPaths.PULSE_SERVER,
             "PULSE_RUNTIME_PATH" to "${TermuxHostPaths.HOME}/.pulse",
             "XDG_RUNTIME_DIR" to "${TermuxHostPaths.HOME}/.pulse-runtime",
             "LD_PRELOAD" to ""

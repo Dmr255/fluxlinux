@@ -1,4 +1,15 @@
-#!/data/data/com.ivarna.fluxlinux/files/usr/bin/bash
+#!/usr/bin/env bash
+# Derive the app id from a /data/data/<pkg>/... path without forking any
+# external binary: sed/grep/dirname under $PREFIX/bin are ELF files in
+# app_data_file, which targetSdk 36 W^X refuses to exec (EACCES).
+_flux_pkg_from_prefix() {
+  _p=$1
+  _p=${_p#*"/data/data/"}
+  case "$_p" in
+    "$1") printf '' ;;
+    *) printf '%s' "${_p%%/*}" ;;
+  esac
+}
 # start_gui_chroot.sh — Launch XFCE4 in chroot (app-uid host + root guest)
 # Host stack mirrors start_gui.sh (Pulse/VirGL/embedded X11).
 # Arg1 / FLUX_CHROOT_DISTRO: debian13_chroot|alpine_chroot|fedora_chroot|void_chroot|opensuse_chroot|deepin_chroot|chimera_chroot|manjaro_chroot|ubuntu_chroot|kali_chroot|parrot_chroot|archlinux_chroot.
@@ -6,7 +17,7 @@
 
 DISTRO_HINT="${1:-${FLUX_CHROOT_DISTRO:-debian13_chroot}}"
 
-PKG="${TERMUX_APP__PACKAGE_NAME:-com.ivarna.fluxlinux}"
+PKG="${TERMUX_APP__PACKAGE_NAME:-$(_flux_pkg_from_prefix "${TERMUX__PREFIX:-$0}")}"
 _HOST_ENV="${TERMUX__PREFIX:-/data/data/${PKG}/files/usr}/etc/fluxlinux-host.env"
 [ -r "$_HOST_ENV" ] && . "$_HOST_ENV"
 
@@ -112,10 +123,22 @@ fi
 export PULSE_RUNTIME_PATH="${HOME}/.pulse"
 mkdir -p "$PULSE_RUNTIME_PATH" "$TMPDIR" 2>/dev/null
 
-# Stale host graphics only — do NOT force-stop $PKG and do not kill Pulse.
+# Stale host graphics for THIS app only — do NOT force-stop $PKG and do not
+# kill Pulse (CLI audio stays up).
+# Kill only THIS app's stale X server. The server runs as
+# `app_process / --nice-name=termux-x11 com.termux.x11.Loader ...`, so its
+# cmdline carries no package id — matching "$PKG" would never hit it.
+# Android UID isolation already prevents signalling other apps, so pin the
+# UID explicitly instead of relying on that. No global `killall Xwayland`
+# either: the X server is in-process (EmbeddedX11), and a global kill would
+# hit another FluxLinux app.
+_our_uid="${UID:-$(/system/bin/id -u 2>/dev/null)}"
+kill_our_x11() {
+  [ -n "$_our_uid" ] || return 0
+  pkill "-$1" -U "$_our_uid" -f "termux-x11" 2>/dev/null || true
+}
 pkill -f "virgl_test_server" 2>/dev/null || true
-pkill -f termux-x11 2>/dev/null || true
-pkill -f "app_process.*termux-x11" 2>/dev/null || true
+kill_our_x11 9
 sleep 1
 
 # Host Pulse (app uid) before su. Supervisor prints FluxLinux: [AUDIO] …
@@ -159,19 +182,10 @@ fi
 export TERMUX_X11_APK_PATH
 echo "FluxLinux: APK path = $TERMUX_X11_APK_PATH"
 
-APP_LIB_DIR="/data/data/$PKG/lib"
-mkdir -p "$APP_LIB_DIR" 2>/dev/null
-# Re-extract when the APK is newer, else an app update keeps running the old X server.
-if { [ ! -f "$APP_LIB_DIR/libXlorie.so" ] || [ "$TERMUX_X11_APK_PATH" -nt "$APP_LIB_DIR/libXlorie.so" ]; } && [ -n "$TERMUX_X11_APK_PATH" ]; then
-  echo "FluxLinux: Extracting libXlorie.so..."
-  ( cd "$APP_LIB_DIR" && \
-    unzip -o "$TERMUX_X11_APK_PATH" 'lib/arm64-v8a/libXlorie.so' 2>/dev/null && \
-    mv -f lib/arm64-v8a/libXlorie.so . && rm -rf lib ) || \
-  ( cd "$APP_LIB_DIR" && \
-    unzip -o "$TERMUX_X11_APK_PATH" 'lib/armeabi-v7a/libXlorie.so' 2>/dev/null && \
-    mv -f lib/armeabi-v7a/libXlorie.so . && rm -rf lib )
-  touch "$APP_LIB_DIR/libXlorie.so" 2>/dev/null # unzip keeps the 1981 entry mtime
-fi
+# libXlorie.so comes from nativeLibraryDir (useLegacyPackaging). No unzip here:
+# neither /system/bin/unzip nor a bootstrap `unzip` exists.
+APP_LIB_DIR="${TERMUX_X11_LIB_DIR:-/data/data/$PKG/lib}"
+export TERMUX_X11_LIB_DIR="$APP_LIB_DIR"
 
 rm -f "$TMPDIR/.X0-lock" "$TMPDIR/.X1-lock" "$TMPDIR/.tX0-lock" \
   "$TMPDIR/.X11-unix/X0" "$TMPDIR/.X11-unix/X1" 2>/dev/null || true

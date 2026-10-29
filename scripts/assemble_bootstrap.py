@@ -270,6 +270,84 @@ def copy_to_jni_libs(extract_dir: Path, target_prefix: str, jni_dir: Path) -> No
             print(f"  [WARN] missing {src_rel}")
 
 
+def rewrite_prefix(extract_dir: Path, from_pkg: str, to_pkg: str) -> None:
+    """Rename an extracted `data/data/<from_pkg>` tree to `<to_pkg>` and patch
+    every absolute prefix string inside its files.
+
+    Requires both ids to be the same byte length so ELF offsets do not move
+    (e.g. com.ivarna.fluxlinux → com.dmr255.fluxlinux, both 20 chars).
+    Used to derive a new app-id's host bootstrap from an existing .deb set
+    without committing a second ~98 MB copy of the packages.
+    """
+    old = f"data/data/{from_pkg}/files".encode()
+    new = f"data/data/{to_pkg}/files".encode()
+    if len(old) != len(new):
+        raise SystemExit(
+            f"prefix rewrite needs equal lengths: {from_pkg!r} ({len(old)}) "
+            f"vs {to_pkg!r} ({len(new)}); rebuild packages for {to_pkg} instead"
+        )
+    # Replace the bare application id as well as the absolute prefix: payloads
+    # also carry `TERMUX_APP__PACKAGE_NAME=<id>` and RUNPATH-style prefixes.
+    # Any occurrence of the source id points at this app, so a global swap is
+    # correct and covers both forms with one equal-length substitution.
+    old_root = from_pkg.encode()
+    new_root = to_pkg.encode()
+
+    data_dir = extract_dir / "data" / "data"
+    src = data_dir / from_pkg
+    dst = data_dir / to_pkg
+    if not src.is_dir():
+        raise SystemExit(f"rewrite source missing: {src}")
+    if dst.exists():
+        shutil.rmtree(dst)
+
+    print(f"[*] Rewriting prefix {from_pkg} → {to_pkg} (in place)...")
+    patched_files = 0
+    patched_hits = 0
+    patched_links = 0
+    for root, dirs, files in os.walk(src):
+        # Symlinks can point at an absolute prefix (e.g. /data/data/<id>/files/
+        # usr/lib/libfoo.so.1). os.walk does not descend into them, but they
+        # are listed in `dirs`/`files`; retarget them too, or the new package
+        # resolves through the old one's data dir (missing at runtime).
+        for name in dirs + files:
+            p = Path(root) / name
+            if not p.is_symlink():
+                continue
+            target = os.readlink(p)
+            if from_pkg not in target:
+                continue
+            p.unlink()
+            os.symlink(target.replace(from_pkg, to_pkg), p)
+            patched_links += 1
+        for name in files:
+            p = Path(root) / name
+            if p.is_symlink() or not p.is_file():
+                continue
+            try:
+                blob = p.read_bytes()
+            except OSError:
+                continue
+            hits = blob.count(old_root)
+            if not hits:
+                continue
+            # Some payloads ship mode 0444; temporarily make them writable and
+            # restore the original mode so the prefix patch is not skipped.
+            mode = p.stat().st_mode
+            try:
+                os.chmod(p, mode | 0o200)
+                p.write_bytes(blob.replace(old_root, new_root))
+            except OSError as exc:
+                raise SystemExit(f"cannot patch {p}: {exc}") from exc
+            finally:
+                os.chmod(p, mode)
+            patched_files += 1
+            patched_hits += hits
+    print(f"    patched {patched_hits} occurrence(s) in {patched_files} file(s), "
+          f"retargeted {patched_links} symlink(s)")
+    src.rename(dst)
+
+
 def assert_no_wrong_prefix(extract_dir: Path, package_name: str) -> None:
     """Ensure archive root is for this package, not another FluxLinux id / termux."""
     expected = extract_dir / f"data/data/{package_name}/files"
@@ -344,6 +422,13 @@ def main() -> None:
         default="full",
         help="full = host+GUI (pulse/xkb); terminal-proot = shell+proot only",
     )
+    ap.add_argument(
+        "--rewrite-from",
+        default=None,
+        metavar="APP_ID",
+        help="Patch an extracted data/data/<APP_ID> tree to --package-name "
+        "(same-length ids only). Lets a new flavor reuse another id's .deb set.",
+    )
     args = ap.parse_args()
 
     package_name = args.package_name
@@ -380,6 +465,8 @@ def main() -> None:
         print("    Re-run with --allow-missing to assemble a partial bootstrap.", file=sys.stderr)
         sys.exit(1)
 
+    if args.rewrite_from:
+        rewrite_prefix(extract_dir, args.rewrite_from, package_name)
     assert_no_wrong_prefix(extract_dir, package_name)
     if args.mode == "full" or not args.skip_loader_check:
         add_loader(extract_dir, target_prefix, args.loader_apk.resolve())

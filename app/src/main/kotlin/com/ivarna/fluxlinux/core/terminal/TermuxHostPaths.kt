@@ -37,6 +37,23 @@ object TermuxHostPaths {
     val PROOT_DISTRO: String get() = "$BIN/proot-distro"
     const val TERMUX_VERSION = "flux-host"
 
+    /**
+     * Host PulseAudio TCP port.
+     *
+     * TCP ports live in the device-wide network namespace, so two FluxLinux app
+     * ids cannot both bind 4713 — the second one silently loses audio. The
+     * legacy ids keep 4713 so already-configured guests keep working; any other
+     * app id gets a stable offset in 4714..4762 derived from its package name.
+     */
+    val PULSE_PORT: Int
+        get() = when (PACKAGE) {
+            "com.ivarna.fluxlinux", "com.zenithblue.fluxlinux" -> 4713
+            else -> 4714 + (PACKAGE.hashCode().toLong() and 0x7fffffffL).toInt() % 49
+        }
+
+    /** `tcp:127.0.0.1:<PULSE_PORT>` — what guests use as PULSE_SERVER. */
+    val PULSE_SERVER: String get() = "tcp:127.0.0.1:$PULSE_PORT"
+
     /** Relative path under app filesDir for generated shell env. */
     const val HOST_ENV_REL = "usr/etc/fluxlinux-host.env"
 
@@ -123,6 +140,7 @@ object TermuxHostPaths {
             |export PROOT_LOADER_32="${libLoader32(ctx).absolutePath}"
             |export PD_PULSEAUDIO_BIN="${libPulseaudio(ctx).absolutePath}"
             |export PD_PACTL_BIN="${libPactl(ctx).absolutePath}"
+            |export TERMUX_X11_LIB_DIR="${ctx.applicationInfo.nativeLibraryDir}"
             |""".trimMargin()
         } else {
             ""
@@ -139,6 +157,8 @@ object TermuxHostPaths {
             |export TMPDIR="$TMPDIR"
             |export PROOT_TMP_DIR="$PROOT_TMP"
             |export TERMUX_VERSION="$TERMUX_VERSION"
+            |export FLUX_PULSE_PORT="$PULSE_PORT"
+            |export FLUX_PULSE_SERVER="$PULSE_SERVER"
             |export SSL_CERT_FILE="$SSL_CERT"
             |export CURL_CA_BUNDLE="$SSL_CERT"
             |export PATH="$BIN:$BIN/applets:/system/bin:/system/xbin${'$'}{PATH:+:${'$'}PATH}"

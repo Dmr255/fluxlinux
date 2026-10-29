@@ -10,6 +10,11 @@ unset LD_PRELOAD
 
 _flux_log() { echo "FluxLinux: $*"; }
 
+# Pulse target comes from the host SSOT env (FLUX_PULSE_SERVER). TCP ports are
+# device-wide, so a second FluxLinux app id uses a different port than 4713.
+FLUX_PULSE_SERVER="${FLUX_PULSE_SERVER:-${PULSE_SERVER:-tcp:127.0.0.1:4713}}"
+
+
 # Portable stat: GNU coreutils uses `-c %u`, BSD userland (Chimera) uses `-f %u`.
 _flux_stat_u() { stat -c %u "$1" 2>/dev/null || stat -f %u "$1" 2>/dev/null || true; }
 _flux_stat_g() { stat -c %g "$1" 2>/dev/null || stat -f %g "$1" 2>/dev/null || true; }
@@ -215,10 +220,14 @@ _flux_ensure_home() {
     chmod -R u+rwX /home/flux/.config /home/flux/.cache /home/flux/.local 2>/dev/null || true
     cat > /home/flux/.vnc/xstartup <<'EOF'
 #!/bin/sh
-export PULSE_SERVER=tcp:127.0.0.1
+export PULSE_SERVER=tcp:127.0.0.1:4713
 [ -f "$HOME/.Xresources" ] && xrdb "$HOME/.Xresources"
 exec startxfce4
 EOF
+    # Quoted heredoc: $HOME must stay literal (evaluated when flux runs the
+    # session), so only the server line is rewritten here.
+    _flux_sed_i "s|^export PULSE_SERVER=.*|export PULSE_SERVER=$FLUX_PULSE_SERVER|" \
+        /home/flux/.vnc/xstartup
     chmod +x /home/flux/.vnc/xstartup
     if command -v _flux_write_pulse_client >/dev/null 2>&1; then
         _flux_write_pulse_client
@@ -464,29 +473,29 @@ _flux_apt_prep() {
 # Host Pulse in the app PREFIX. Guests are clients only (no guest daemon).
 _flux_write_pulse_client() {
     mkdir -p /etc/profile.d
-    printf 'export PULSE_SERVER=tcp:127.0.0.1\n' > /etc/profile.d/flux-pulse.sh
+    printf 'export PULSE_SERVER=%s\n' "$FLUX_PULSE_SERVER" > /etc/profile.d/flux-pulse.sh
     chmod 644 /etc/profile.d/flux-pulse.sh 2>/dev/null || true
     if [ -f /etc/environment ]; then
         if grep -q '^PULSE_SERVER=' /etc/environment 2>/dev/null; then
-            _flux_sed_i 's|^PULSE_SERVER=.*|PULSE_SERVER=tcp:127.0.0.1|' /etc/environment
+            _flux_sed_i "s|^PULSE_SERVER=.*|PULSE_SERVER=$FLUX_PULSE_SERVER|" /etc/environment
         else
-            printf 'PULSE_SERVER=tcp:127.0.0.1\n' >> /etc/environment
+            printf 'PULSE_SERVER=%s\n' "$FLUX_PULSE_SERVER" >> /etc/environment
         fi
     else
-        printf 'PULSE_SERVER=tcp:127.0.0.1\n' > /etc/environment
+        printf 'PULSE_SERVER=%s\n' "$FLUX_PULSE_SERVER" > /etc/environment
     fi
     mkdir -p /etc/pulse/client.conf.d 2>/dev/null || true
     if [ -d /etc/pulse/client.conf.d ]; then
-        cat > /etc/pulse/client.conf.d/99-fluxlinux.conf <<'EOF'
-default-server = tcp:127.0.0.1
+        cat > /etc/pulse/client.conf.d/99-fluxlinux.conf <<EOF
+default-server = $FLUX_PULSE_SERVER
 autospawn = no
 EOF
     fi
     if [ -f /etc/pulse/client.conf ]; then
         if grep -qE '^;?[[:space:]]*default-server' /etc/pulse/client.conf 2>/dev/null; then
-            _flux_sed_i 's/^;*[[:space:]]*default-server.*/default-server = tcp:127.0.0.1/' /etc/pulse/client.conf
+            _flux_sed_i "s/^;*[[:space:]]*default-server.*/default-server = $FLUX_PULSE_SERVER/" /etc/pulse/client.conf
         else
-            printf '\ndefault-server = tcp:127.0.0.1\n' >> /etc/pulse/client.conf
+            printf '\ndefault-server = %s\n' "$FLUX_PULSE_SERVER" >> /etc/pulse/client.conf
         fi
         if grep -qE '^;?[[:space:]]*autospawn' /etc/pulse/client.conf 2>/dev/null; then
             _flux_sed_i 's/^;*[[:space:]]*autospawn.*/autospawn = no/' /etc/pulse/client.conf
@@ -495,7 +504,7 @@ EOF
         fi
     fi
     if [ -f /home/flux/.vnc/xstartup ]; then
-        _flux_sed_i 's|^export PULSE_SERVER=.*|export PULSE_SERVER=tcp:127.0.0.1|' /home/flux/.vnc/xstartup
+        _flux_sed_i "s|^export PULSE_SERVER=.*|export PULSE_SERVER=$FLUX_PULSE_SERVER|" /home/flux/.vnc/xstartup
     fi
 }
 

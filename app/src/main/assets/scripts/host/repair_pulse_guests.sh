@@ -1,9 +1,20 @@
 #!/bin/bash
+# Derive the app id from a /data/data/<pkg>/... path without forking any
+# external binary: sed/grep/dirname under $PREFIX/bin are ELF files in
+# app_data_file, which targetSdk 36 W^X refuses to exec (EACCES).
+_flux_pkg_from_prefix() {
+  _p=$1
+  _p=${_p#*"/data/data/"}
+  case "$_p" in
+    "$1") printf '' ;;
+    *) printf '%s' "${_p%%/*}" ;;
+  esac
+}
 # repair_pulse_guests.sh — run setup_pulse_guest.sh inside installed guests.
 # Host Pulse stays in the app PREFIX. This only writes guest client config
 # and installs named Pulse *client* packages when pactl is missing.
 
-PKG="${TERMUX_APP__PACKAGE_NAME:-com.ivarna.fluxlinux}"
+PKG="${TERMUX_APP__PACKAGE_NAME:-$(_flux_pkg_from_prefix "${TERMUX__PREFIX:-$0}")}"
 _HOST_ENV="${TERMUX__PREFIX:-/data/data/${PKG}/files/usr}/etc/fluxlinux-host.env"
 [ -r "$_HOST_ENV" ] && . "$_HOST_ENV"
 
@@ -40,7 +51,9 @@ repair_proot() {
     [ -d "$_pd/$_layout" ] || continue
     for _dir in "$_pd/$_layout"/*; do
       [ -d "$_dir" ] || continue
-      _name=$(basename "$_dir")
+      # No basename: it is an ELF in $PREFIX/bin and targetSdk 36 W^X
+      # refuses to exec it from app_data_file (EACCES).
+      _name="${_dir##*/}"
       case "$_name" in
         .*|"") continue ;;
       esac
@@ -54,7 +67,7 @@ repair_proot() {
         env -i HOME=/root USER=root LOGNAME=root \
           TERM="${TERM:-xterm-256color}" LANG=C \
           TMPDIR=/tmp XDG_RUNTIME_DIR=/tmp PATH="$_gp" \
-          PULSE_SERVER=tcp:127.0.0.1 \
+          PULSE_SERVER="${FLUX_PULSE_SERVER:-tcp:127.0.0.1:4713}" \
           /bin/sh /tmp/setup_pulse_guest.sh \
         || echo "FluxLinux: [AUDIO] WARN repair failed proot $_name"
     done

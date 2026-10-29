@@ -16,6 +16,7 @@ object HostBootstrap {
 
     const val IVARNA_PACKAGE = "com.ivarna.fluxlinux"
     const val ZENITHBLUE_PACKAGE = "com.zenithblue.fluxlinux"
+    const val DMR255_PACKAGE = "com.dmr255.fluxlinux"
 
     val IVARNA = PinnedReleaseArchive(
         fileName = "bootstrap_com.ivarna.fluxlinux.tar",
@@ -31,11 +32,24 @@ object HostBootstrap {
         minBytes = 50L * 1024L * 1024L
     )
 
-    fun forApplicationId(applicationId: String): PinnedReleaseArchive =
+    /**
+     * Release pin for [applicationId], or `null` when this id has no published
+     * bootstrap archive (e.g. the dmr255 fork, which only ships the APK asset).
+     *
+     * Never fall back to another id's pin: the SHA check would pass for that
+     * other id's file and silently extract a foreign-prefix prefix.
+     */
+    fun forApplicationId(applicationId: String): PinnedReleaseArchive? =
         when (applicationId) {
+            IVARNA_PACKAGE -> IVARNA
             ZENITHBLUE_PACKAGE -> ZENITHBLUE
-            else -> IVARNA
+            DMR255_PACKAGE -> null // APK asset only; no published archive
+            else -> null
         }
+
+    /** Human-readable asset name for error messages. */
+    fun expectedFileName(applicationId: String): String =
+        forApplicationId(applicationId)?.fileName ?: "bootstrap_$applicationId.tar"
 
     /**
      * True when this flavor does **not** package `assets/bootstrap.tar`.

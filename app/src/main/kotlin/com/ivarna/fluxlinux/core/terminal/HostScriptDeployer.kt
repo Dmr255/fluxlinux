@@ -30,7 +30,7 @@ object HostScriptDeployer {
      * A current marker makes [deployScripts] a no-op — no 30-script asset copy,
      * no pulse overlay, no loader churn — on successive warm sessions.
      */
-    internal const val DEPLOY_VERSION = 1
+    internal const val DEPLOY_VERSION = 2
     private const val MARKER_REL = "home/.fluxlinux/scripts.deployed"
 
     /** Marker file: content is the deployed [DEPLOY_VERSION]. */

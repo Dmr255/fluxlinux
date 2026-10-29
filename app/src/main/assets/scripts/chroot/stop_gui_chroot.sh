@@ -1,11 +1,22 @@
-#!/data/data/com.ivarna.fluxlinux/files/usr/bin/bash
+#!/usr/bin/env bash
+# Derive the app id from a /data/data/<pkg>/... path without forking any
+# external binary: sed/grep/dirname under $PREFIX/bin are ELF files in
+# app_data_file, which targetSdk 36 W^X refuses to exec (EACCES).
+_flux_pkg_from_prefix() {
+  _p=$1
+  _p=${_p#*"/data/data/"}
+  case "$_p" in
+    "$1") printf '' ;;
+    *) printf '%s' "${_p%%/*}" ;;
+  esac
+}
 # stop_gui_chroot.sh — app-uid: stop X11/VirGL + root stop_*_gui.sh (Pulse stays up)
 # Arg1 / FLUX_CHROOT_DISTRO: debian13_chroot|alpine_chroot|fedora_chroot|void_chroot|opensuse_chroot|deepin_chroot|chimera_chroot|manjaro_chroot|ubuntu_chroot|kali_chroot|parrot_chroot|archlinux_chroot.
 # Does NOT pkill proot.
 
 DISTRO_HINT="${1:-${FLUX_CHROOT_DISTRO:-debian13_chroot}}"
 
-PKG="${TERMUX_APP__PACKAGE_NAME:-com.ivarna.fluxlinux}"
+PKG="${TERMUX_APP__PACKAGE_NAME:-$(_flux_pkg_from_prefix "${TERMUX__PREFIX:-$0}")}"
 _HOST_ENV="${TERMUX__PREFIX:-/data/data/${PKG}/files/usr}/etc/fluxlinux-host.env"
 [ -r "$_HOST_ENV" ] && . "$_HOST_ENV"
 
@@ -93,8 +104,17 @@ fi
 echo "Stopping VirGL (app uid; Pulse stays running)..."
 pkill -f "virgl_test_server" 2>/dev/null || true
 
-pkill -9 -f "termux-x11" 2>/dev/null || true
-pkill -9 -f "app_process.*termux-x11" 2>/dev/null || true
+
+# Kill only THIS app's X server. Its cmdline is
+# `app_process / --nice-name=termux-x11 com.termux.x11.Loader ...` and carries
+# no package id, so a "$PKG" pattern never matches. Pin the UID explicitly
+# rather than relying on Android's cross-UID EPERM.
+_our_uid="${UID:-$(/system/bin/id -u 2>/dev/null)}"
+kill_our_x11() {
+  [ -n "$_our_uid" ] || return 0
+  pkill "-$1" -U "$_our_uid" -f "termux-x11" 2>/dev/null || true
+}
+kill_our_x11 9
 
 echo "Chroot GUI stop complete."
 echo "========================================"

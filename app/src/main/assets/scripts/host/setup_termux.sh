@@ -1,4 +1,15 @@
 #!/bin/bash
+# Derive the app id from a /data/data/<pkg>/... path without forking any
+# external binary: sed/grep/dirname under $PREFIX/bin are ELF files in
+# app_data_file, which targetSdk 36 W^X refuses to exec (EACCES).
+_flux_pkg_from_prefix() {
+  _p=$1
+  _p=${_p#*"/data/data/"}
+  case "$_p" in
+    "$1") printf '' ;;
+    *) printf '%s' "${_p%%/*}" ;;
+  esac
+}
 # setup_termux.sh
 # Host env gate — paths from TermuxHostPaths via fluxlinux-host.env (SSOT).
 # Validates bundled host deps only; does not apt-install or rewrite ELFs.
@@ -12,7 +23,7 @@ set -o pipefail
 SETUP_VERSION="2"
 
 # Bootstrap package identity until SSOT env file is sourced
-PKG="${TERMUX_APP__PACKAGE_NAME:-com.ivarna.fluxlinux}"
+PKG="${TERMUX_APP__PACKAGE_NAME:-$(_flux_pkg_from_prefix "${TERMUX__PREFIX:-$0}")}"
 PREFIX_DEFAULT="${TERMUX__PREFIX:-/data/data/${PKG}/files/usr}"
 HOME_DEFAULT="${TERMUX__HOME:-/data/data/${PKG}/files/home}"
 
@@ -31,7 +42,7 @@ if [ -r "$_HOST_ENV" ]; then
 fi
 
 # Force package identity (env file + Kotlin ProcessBuilder must agree)
-PKG="${TERMUX_APP__PACKAGE_NAME:-com.ivarna.fluxlinux}"
+PKG="${TERMUX_APP__PACKAGE_NAME:-$(_flux_pkg_from_prefix "${TERMUX__PREFIX:-$0}")}"
 export TERMUX_APP__PACKAGE_NAME="$PKG"
 export TERMUX_X11_OVERRIDE_PACKAGE="${TERMUX_X11_OVERRIDE_PACKAGE:-$PKG}"
 export TERMUX__PREFIX="${TERMUX__PREFIX:-/data/data/${PKG}/files/usr}"

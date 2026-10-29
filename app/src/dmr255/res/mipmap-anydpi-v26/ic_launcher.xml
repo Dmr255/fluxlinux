@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- dmr255 fork adaptive icon. minSdk is 26, so this anydpi-v26 resource is
+     always the one selected; no legacy PNG mipmaps are required.
+     No <monochrome> layer: the stock one is a 1024px PNG and this flavor is
+     built without raster tooling. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>
