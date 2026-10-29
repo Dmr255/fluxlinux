@@ -187,9 +187,11 @@ object TerminalLauncher {
         }
         // Corrupt/partial tree (no valid marker) → clean re-extract (containers preserved).
         if (!BootstrapInstaller.ensureExtracted(ctx, onProgress = progress)) {
+            progress(0L, 0L, "Extract failed — host bootstrap missing or unreadable")
             return false
         }
         if (!HostScriptDeployer.deployScripts(ctx)) {
+            progress(0L, 0L, "Script deploy failed — required asset missing")
             return false
         }
         if (!forceHostSetup && isHostSetupDone(ctx)) return true
@@ -206,6 +208,16 @@ object TerminalLauncher {
             )
             Log.i(TAG, "setup_termux exit=$exit\n$out")
             if (exit == 0) return true
+            // Surface the real shell failure to the onboarding UI instead of a
+            // generic "setup failed" — the gate script prints `FluxLinux: ...`
+            // with the exact missing dependency / permission error.
+            val reason = out.lineSequence()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .lastOrNull { it.startsWith("FluxLinux:") }
+                ?: out.lineSequence().map { it.trim() }.lastOrNull { it.isNotBlank() }
+                ?: "exit $exit"
+            progress(0L, 0L, reason.take(180))
             marker.delete()
             Log.w(TAG, "setup_termux failed — host NOT ready (no destructive recovery)")
         } catch (e: Exception) {

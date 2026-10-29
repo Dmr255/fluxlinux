@@ -65,6 +65,18 @@ if [ -r "$PREFIX/etc/profile" ]; then
     export LD_LIBRARY_PATH="$PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
 
+# --- W^X probe (targetSdk 36) -------------------------------------------
+# Everything under $PREFIX is app_data_file. SELinux may deny exec there
+# (that is why bash/proot/pulseaudio ship as jniLibs lib*.so). Probe once:
+# if prefix exec is denied, put /system/bin (toybox) ahead of $PREFIX/bin so
+# mkdir/chmod/cat/rm/dirname/wc/tr/touch still resolve.
+if [ -d "$PREFIX/bin" ]; then
+    if ! "$PREFIX/bin/dirname" --version >/dev/null 2>&1; then
+        export PATH="/system/bin:/system/xbin:$PREFIX/bin:$PREFIX/bin/applets"
+        echo "FluxLinux: prefix exec blocked (W^X) - using /system/bin helpers"
+    fi
+fi
+
 MARKER_DIR="$HOME/.fluxlinux"
 MARKER_FILE="$MARKER_DIR/setup_termux.done"
 mkdir -p "$MARKER_DIR" "$TMPDIR" "$PROOT_TMP_DIR"
@@ -129,8 +141,15 @@ if ! "$_PA" --version >/dev/null 2>&1; then
 fi
 echo "FluxLinux: OK pulseaudio --version ($("$_PA" --version 2>/dev/null | head -1))"
 
-python -c "import sys; assert sys.version_info[0] >= 3" \
-    || fail "python present but failed smoke import"
+# Host python lives under $PREFIX/bin (app_data_file). On targetSdk 36 SELinux
+# denies exec from app_data_file (W^X), so we must NEVER exec it from the host
+# shell -- that is why bash/proot/pulseaudio are shipped as jniLibs lib*.so.
+# Verify presence only; real python runs inside proot (loader-mediated exec).
+if [ -e "$PREFIX/bin/python" ] || [ -e "$PREFIX/bin/python3" ]; then
+    echo "FluxLinux: OK python (host entry present; exec deferred to proot)"
+else
+    fail "Missing bundled host dependency: python (expected under $PREFIX/bin, package $PKG)"
+fi
 
 if [ -n "${PD_PROOT_BIN:-}" ] && [ -e "$PD_PROOT_BIN" ]; then
     echo "FluxLinux: OK PD_PROOT_BIN=$PD_PROOT_BIN"

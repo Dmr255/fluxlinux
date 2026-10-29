@@ -600,23 +600,40 @@ private fun HostSetupPage(onBack: () -> Unit, onNext: () -> Unit) {
     var bootstrapDone by remember { mutableStateOf(TerminalLauncher.isHostSetupDone(context)) }
     var initializing by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf(0f) }
+    var indeterminate by remember { mutableStateOf(false) }
     var statusText by remember { mutableStateOf("") }
+    var failDetail by remember { mutableStateOf("") }
     val colors = MaterialTheme.colorScheme
 
     fun startInit() {
         initializing = true
-        statusText = "Extracting host bootstrap…"
+        progress = 0f
+        indeterminate = false
+        failDetail = ""
+        statusText = "Preparing host bootstrap…"
+        var lastPhase = ""
         TerminalLauncher.prepareHost(
             context,
             progress = { done, total, phase ->
                 statusText = phase
+                lastPhase = phase
+                // total == 0 means "working, no byte counter" (deploy / validation
+                // phases). Show an indeterminate bar instead of a frozen 0%.
+                indeterminate = total <= 0L
                 if (total > 0) progress = (done.toFloat() / total.toFloat()).coerceIn(0f, 1f)
             },
             onDone = { ok ->
                 initializing = false
+                indeterminate = false
                 bootstrapDone = TerminalLauncher.isHostSetupDone(context)
-                statusText = if (bootstrapDone) "Host environment ready."
-                else "Setup failed — check device storage."
+                if (bootstrapDone) {
+                    statusText = "Host environment ready."
+                } else {
+                    // Keep the real shell reason on screen: the generic string
+                    // gets overwritten by the next progress() callback otherwise.
+                    failDetail = lastPhase.ifBlank { "unknown failure" }
+                    statusText = "Setup failed."
+                }
             }
         )
     }
@@ -721,24 +738,45 @@ private fun HostSetupPage(onBack: () -> Unit, onNext: () -> Unit) {
                                     modifier = Modifier.weight(1f)
                                 )
                                 Text(
-                                    text = "${(progress * 100).toInt()}%",
+                                    text = if (indeterminate) "…"
+                                    else "${(progress * 100).toInt()}%",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = FluxAccentMagenta
                                 )
                             }
                             Spacer(Modifier.height(8.dp))
-                            LinearProgressIndicator(
-                                progress = { progress },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(6.dp)
-                                    .clip(RoundedCornerShape(3.dp)),
-                                color = FluxAccentMagenta,
-                                trackColor = colors.surfaceVariant.copy(alpha = 0.5f)
-                            )
+                            if (indeterminate) {
+                                LinearProgressIndicator(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp)),
+                                    color = FluxAccentMagenta,
+                                    trackColor = colors.surfaceVariant.copy(alpha = 0.5f)
+                                )
+                            } else {
+                                LinearProgressIndicator(
+                                    progress = { progress },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp)),
+                                    color = FluxAccentMagenta,
+                                    trackColor = colors.surfaceVariant.copy(alpha = 0.5f)
+                                )
+                            }
                         }
                     } else if (!bootstrapDone) {
+                        if (failDetail.isNotBlank()) {
+                            Text(
+                                text = failDetail,
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp,
+                                color = Color(0xFFFF6E6E),
+                                modifier = Modifier.padding(bottom = 10.dp)
+                            )
+                        }
                         Text(
                             text = "Tap below to extract the core userland files and start the embedded runtime.",
                             fontSize = 12.5.sp,
